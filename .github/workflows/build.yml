@@ -1,0 +1,55 @@
+name: Build ORSh Lite ISO
+
+on:
+  workflow_dispatch:
+  push:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install tools
+        run: |
+          sudo apt update
+          sudo apt install -y build-essential grub-pc-bin xorriso mtools cpio
+
+      - name: Build ISO
+        run: |
+          mkdir -p rootfs/{bin,proc,sys,dev,boot,boot/grub}
+
+          gcc -static orsh.c -o rootfs/bin/orsh
+
+          echo '#!/bin/sh' > rootfs/init
+          echo 'mount -t proc none /proc' >> rootfs/init
+          echo 'mount -t sysfs none /sys' >> rootfs/init
+          echo 'mount -t devtmpfs none /dev' >> rootfs/init
+          echo '/bin/orsh' >> rootfs/init
+          echo 'poweroff -f' >> rootfs/init
+          chmod +x rootfs/init
+
+          cd rootfs
+          find . | cpio -H newc -ov > ../initramfs.cpio
+          cd ..
+
+          cp /boot/vmlinuz-$(uname -r) vmlinuz
+
+          mkdir -p iso/boot/grub
+          cp vmlinuz iso/boot/
+          cp initramfs.cpio iso/boot/
+
+          echo 'set timeout=0' > iso/boot/grub/grub.cfg
+          echo 'set default=0' >> iso/boot/grub/grub.cfg
+          echo 'menuentry "ORSh Lite" {' >> iso/boot/grub/grub.cfg
+          echo ' linux /boot/vmlinuz' >> iso/boot/grub/grub.cfg
+          echo ' initrd /boot/initramfs.cpio' >> iso/boot/grub/grub.cfg
+          echo '}' >> iso/boot/grub/grub.cfg
+
+          grub-mkrescue -o orsh-lite.iso iso
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: orsh-lite-iso
+          path: orsh-lite.iso
